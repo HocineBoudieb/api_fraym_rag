@@ -8,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+# Import du gestionnaire de sessions
+from session_manager import SessionManager
+
 # LangChain imports
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, DirectoryLoader
@@ -42,6 +45,7 @@ app.add_middleware(
 # Modèles Pydantic
 class QueryRequest(BaseModel):
     query: str
+    session_id: Optional[str] = None
     max_results: int = 5
     temperature: float = 0.7
 
@@ -49,11 +53,35 @@ class QueryResponse(BaseModel):
     answer: str
     sources: List[Dict[str, Any]]
     metadata: Dict[str, Any]
+    session_id: Optional[str] = None
 
 class DocumentInfo(BaseModel):
     filename: str
     content_preview: str
     chunk_count: int
+    metadata: Dict[str, Any]
+
+# Modèles pour les sessions
+class SessionCreate(BaseModel):
+    title: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class SessionResponse(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    metadata: Dict[str, Any]
+
+class SessionUpdate(BaseModel):
+    title: str
+
+class MessageResponse(BaseModel):
+    id: int
+    timestamp: str
+    role: str
+    content: str
     metadata: Dict[str, Any]
 
 # Configuration globale
@@ -66,6 +94,9 @@ class RAGSystem:
         self.text_splitter = None
         self.knowledge_base_path = Path("knowledges")
         self.chroma_db_path = "./chroma_langchain_db"
+        
+        # Initialiser le gestionnaire de sessions
+        self.session_manager = SessionManager("sessions.db")
         
         # Initialiser les composants
         self._initialize_components()
@@ -153,12 +184,19 @@ INSTRUCTIONS OBLIGATOIRES :
 - Applique les classes Tailwind CSS appropriées
 - Assure-toi que le JSON est syntaxiquement correct
 
+RÈGLES STRICTES POUR LES PRODUITS :
+- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
+- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
+- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
+- Tu NE DOIS PAS inventer de prix, de caractéristiques ou de descriptions
+- Reste fidèle aux informations exactes du catalogue fourni
+
 Contexte:
 {context}
 
 Question: {question}
 
-Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisant SEULEMENT les produits du contexte :"""
         
         PROMPT = PromptTemplate(
             template=prompt_template,
@@ -275,16 +313,43 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
             logger.error(f"Erreur lors de la récupération par tag: {e}")
             return []
     
-    def query(self, question: str, max_results: int = 5) -> Dict[str, Any]:
-        """Effectue une requête sur la base de connaissances avec logique améliorée"""
+    def query(self, question: str, session_id: str = None, max_results: int = 5) -> Dict[str, Any]:
+        """Effectue une requête sur la base de connaissances avec logique améliorée et gestion de session"""
         try:
             if not self.qa_chain:
                 raise ValueError("Système QA non initialisé")
             
+            # Créer une session si nécessaire
+            if not session_id:
+                session_id = self.session_manager.create_session()
+                logger.info(f"🆕 Nouvelle session créée: {session_id}")
+            
+            # Enregistrer la question de l'utilisateur
+            self.session_manager.add_message(session_id, "user", question)
+            
+            # Récupérer le contexte de la session
+            session_context = self.session_manager.get_session_context(session_id, max_messages=5)
+            
             question_lower = question.lower()
             
-            # Détecter si la question concerne les produits
-            product_keywords = ['produit', 'product', 'liste', 'catalog', 'catalogue', 'disponible', 'prix', 'smartphone', 'ordinateur', 'iphone', 'samsung', 'macbook']
+            # Détecter si la question concerne les produits (logique élargie)
+            product_keywords = [
+                # Mots directs
+                'produit', 'product', 'liste', 'catalog', 'catalogue', 'disponible', 'prix',
+                # Produits spécifiques
+                'smartphone', 'ordinateur', 'iphone', 'samsung', 'macbook', 'airpods', 'dell',
+                # Actions d'achat/recommandation
+                'acheter', 'achat', 'buy', 'purchase', 'commander', 'order',
+                'cadeau', 'cadeaux', 'gift', 'offrir', 'offer',
+                'proposer', 'propose', 'recommander', 'recommend', 'suggérer', 'suggest',
+                'cherche', 'search', 'trouve', 'find', 'besoin', 'need', 'veux', 'want',
+                # Contextes commerciaux
+                'boutique', 'magasin', 'shop', 'store', 'vendre', 'sell', 'vente', 'sale',
+                'choisir', 'choose', 'sélectionner', 'select', 'comparer', 'compare',
+                # Termes généraux qui impliquent souvent des produits
+                'que me', 'qu\'avez', 'avez-vous', 'do you have', 'what do you',
+                'me conseillez', 'me proposez', 'me recommandez'
+            ]
             is_product_query = any(keyword in question_lower for keyword in product_keywords)
             
             if is_product_query:
@@ -296,7 +361,7 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
                     # Créer un contexte spécialisé pour les produits
                     context = "\n\n".join([doc.page_content for doc in product_docs])
                     
-                    # Utiliser le prompt JSON avec le contexte enrichi
+                    # Utiliser le prompt JSON avec le contexte enrichi et l'historique de session
                     json_prompt_template = """
 Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
 
@@ -309,21 +374,42 @@ INSTRUCTIONS OBLIGATOIRES :
 - Pour les tableaux de bord : utilise "dashboard"
 - Applique les classes Tailwind CSS appropriées
 - Assure-toi que le JSON est syntaxiquement correct
+- Prends en compte l'historique de la conversation pour maintenir la cohérence
 
-Contexte:
+RÈGLES STRICTES POUR LES PRODUITS :
+- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
+- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
+- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
+- Tu NE DOIS PAS inventer de prix, de caractéristiques ou de descriptions
+- Reste fidèle aux informations exactes du catalogue fourni
+- Si l'utilisateur demande un produit qui n'existe pas, propose uniquement les produits similaires disponibles
+
+Historique de la conversation:
+{session_context}
+
+Contexte des produits:
 {context}
 
-Question: {question}
+Question actuelle: {question}
 
-Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisant SEULEMENT les produits du contexte :"""
                     
                     formatted_prompt = json_prompt_template.format(
+                        session_context=session_context,
                         context=context,
                         question=question
                     )
                     
                     # Générer la réponse
                     response = self.llm.invoke(formatted_prompt)
+                    answer = response.content if hasattr(response, 'content') else str(response)
+                    
+                    # Enregistrer la réponse de l'assistant
+                    self.session_manager.add_message(session_id, "assistant", answer, {
+                        "search_method": "tag_based",
+                        "tag_used": "product",
+                        "sources_count": len(product_docs)
+                    })
                     
                     # Formater les sources
                     sources = []
@@ -335,8 +421,9 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
                         })
                     
                     return {
-                        "answer": response.content if hasattr(response, 'content') else str(response),
+                        "answer": answer,
                         "sources": sources,
+                        "session_id": session_id,
                         "metadata": {
                             "total_sources": len(product_docs),
                             "query": question,
@@ -347,11 +434,110 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
             
             # Pour les autres questions, utiliser la recherche par similarité normale
             logger.info("🔍 Requête générale - recherche par similarité")
-            result = self.qa_chain({"query": question})
+            
+            # Modifier le prompt pour inclure l'historique de session
+            if session_context:
+                # Créer un prompt enrichi avec l'historique
+                enriched_query = f"Historique de la conversation:\n{session_context}\n\nQuestion actuelle: {question}"
+                result = self.qa_chain({"query": enriched_query})
+            else:
+                result = self.qa_chain({"query": question})
+            
+            answer = result["result"]
+            sources_found = result.get("source_documents", [])
+            
+            # Logique de fallback : si peu de sources trouvées et que la question pourrait concerner des recommandations
+            fallback_keywords = ['recommand', 'conseil', 'suggest', 'propose', 'que faire', 'quoi', 'help', 'aide']
+            should_try_products = (
+                len(sources_found) < 3 and 
+                any(keyword in question_lower for keyword in fallback_keywords)
+            )
+            
+            if should_try_products:
+                logger.info("🔄 Fallback - tentative de recherche dans les produits")
+                product_docs = self.get_chunks_by_tag('product', limit=10)
+                
+                if product_docs and len(product_docs) > len(sources_found):
+                    # Utiliser les produits comme sources supplémentaires
+                    context = "\n\n".join([doc.page_content for doc in product_docs])
+                    
+                    json_prompt_template = """
+Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
+
+INSTRUCTIONS OBLIGATOIRES :
+- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
+- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
+- Utilise les composants appropriés : "Heading", "Text", "Button", "Card", "Grid", "ProductCard", "Container", "Navigation", etc.
+- Pour les listes de produits : utilise "Grid" avec des "ProductCard"
+- Pour les pages simples : utilise "centered" avec "Heading" et "Text"
+- Pour les tableaux de bord : utilise "dashboard"
+- Applique les classes Tailwind CSS appropriées
+- Assure-toi que le JSON est syntaxiquement correct
+- Prends en compte l'historique de la conversation pour maintenir la cohérence
+
+RÈGLES STRICTES POUR LES PRODUITS :
+- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
+- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
+- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
+- Tu NE DOIS PAS inventer de prix, de caractéristiques ou de descriptions
+- Reste fidèle aux informations exactes du catalogue fourni
+- Si l'utilisateur demande un produit qui n'existe pas, propose uniquement les produits similaires disponibles
+
+Historique de la conversation:
+{session_context}
+
+Contexte des produits disponibles:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisant SEULEMENT les produits du contexte :"""
+                    
+                    formatted_prompt = json_prompt_template.format(
+                        session_context=session_context,
+                        context=context,
+                        question=question
+                    )
+                    
+                    # Générer la réponse avec les produits
+                    response = self.llm.invoke(formatted_prompt)
+                    answer = response.content if hasattr(response, 'content') else str(response)
+                    
+                    # Enregistrer la réponse de l'assistant
+                    self.session_manager.add_message(session_id, "assistant", answer, {
+                        "search_method": "fallback_products",
+                        "sources_count": len(product_docs)
+                    })
+                    
+                    # Formater les sources avec les produits
+                    sources = []
+                    for doc in product_docs:
+                        sources.append({
+                            "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                            "metadata": doc.metadata,
+                            "source": doc.metadata.get("source", "Unknown")
+                        })
+                    
+                    return {
+                        "answer": answer,
+                        "sources": sources,
+                        "session_id": session_id,
+                        "metadata": {
+                            "total_sources": len(product_docs),
+                            "query": question,
+                            "search_method": "fallback_products"
+                        }
+                    }
+            
+            # Enregistrer la réponse de l'assistant (recherche normale)
+            self.session_manager.add_message(session_id, "assistant", answer, {
+                "search_method": "similarity",
+                "sources_count": len(sources_found)
+            })
             
             # Formater les sources
             sources = []
-            for doc in result.get("source_documents", []):
+            for doc in sources_found:
                 sources.append({
                     "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
                     "metadata": doc.metadata,
@@ -359,10 +545,11 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
                 })
             
             return {
-                "answer": result["result"],
+                "answer": answer,
                 "sources": sources[:max_results],
+                "session_id": session_id,
                 "metadata": {
-                    "total_sources": len(result.get("source_documents", [])),
+                    "total_sources": len(sources_found),
                     "query": question,
                     "search_method": "similarity"
                 }
@@ -415,17 +602,19 @@ async def health_check():
 
 @app.post("/query", response_model=QueryResponse)
 async def query_knowledge_base(request: QueryRequest):
-    """Effectue une requête sur la base de connaissances"""
+    """Effectue une requête sur la base de connaissances avec gestion de session"""
     try:
         result = rag_system.query(
             question=request.query,
+            session_id=request.session_id,
             max_results=request.max_results
         )
         
         return QueryResponse(
             answer=result["answer"],
             sources=result["sources"],
-            metadata=result["metadata"]
+            metadata=result["metadata"],
+            session_id=result["session_id"]
         )
         
     except Exception as e:
@@ -460,6 +649,86 @@ async def get_system_info():
         "knowledge_path": str(rag_system.knowledge_base_path),
         "chroma_path": rag_system.chroma_db_path
     }
+
+# Routes pour la gestion des sessions
+@app.post("/sessions", response_model=SessionResponse)
+async def create_session(request: SessionCreate):
+    """Crée une nouvelle session de conversation"""
+    try:
+        session_id = rag_system.session_manager.create_session(request.title)
+        return SessionResponse(
+            session_id=session_id,
+            title=request.title,
+            created_at=rag_system.session_manager.get_session_info(session_id)["created_at"],
+            message_count=0
+        )
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la création de session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sessions")
+async def list_sessions():
+    """Liste toutes les sessions"""
+    try:
+        sessions = rag_system.session_manager.get_sessions()
+        return {"sessions": sessions}
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la récupération des sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sessions/{session_id}/history")
+async def get_session_history(session_id: str):
+    """Récupère l'historique d'une session"""
+    try:
+        if not rag_system.session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="Session non trouvée")
+        
+        history = rag_system.session_manager.get_session_history(session_id)
+        messages = []
+        for msg in history:
+            messages.append(MessageResponse(
+                role=msg["role"],
+                content=msg["content"],
+                timestamp=msg["timestamp"],
+                metadata=msg["metadata"]
+            ))
+        
+        return {"session_id": session_id, "messages": messages}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la récupération de l'historique: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/sessions/{session_id}")
+async def update_session(session_id: str, request: SessionUpdate):
+    """Met à jour le titre d'une session"""
+    try:
+        if not rag_system.session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="Session non trouvée")
+        
+        rag_system.session_manager.update_session_title(session_id, request.title)
+        return {"message": "Session mise à jour avec succès"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la mise à jour de session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Supprime une session"""
+    try:
+        if not rag_system.session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="Session non trouvée")
+        
+        rag_system.session_manager.delete_session(session_id)
+        return {"message": "Session supprimée avec succès"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la suppression de session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
