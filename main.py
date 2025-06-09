@@ -139,24 +139,26 @@ class RAGSystem:
     
     def _create_qa_chain(self):
         """Crée la chaîne de question-réponse"""
-        # Template de prompt personnalisé
+        # Template de prompt personnalisé pour générer du JSON selon le guide
         prompt_template = """
-Tu es un assistant e-commerce spécialisé. Utilise le contexte suivant pour répondre à la question de manière précise et structurée.
+Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
 
-INSTRUCTIONS SPÉCIALES :
-- Pour les demandes de liste de produits : présente TOUS les produits disponibles avec leurs caractéristiques principales (nom, prix, spécifications clés)
-- Pour les filtres (ex: "produits pas chers", "moins de X€") : analyse les prix et filtre automatiquement
-- Pour les comparaisons : présente les différences clés entre les produits
-- Utilise des listes à puces et une mise en forme claire
-- Inclus toujours les prix quand disponibles
-- Si des informations manquent, indique-le clairement
+INSTRUCTIONS OBLIGATOIRES :
+- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
+- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
+- Utilise les composants appropriés : "Heading", "Text", "Button", "Card", "Grid", "ProductCard", "Container", "Navigation", etc.
+- Pour les listes de produits : utilise "Grid" avec des "ProductCard"
+- Pour les pages simples : utilise "centered" avec "Heading" et "Text"
+- Pour les tableaux de bord : utilise "dashboard"
+- Applique les classes Tailwind CSS appropriées
+- Assure-toi que le JSON est syntaxiquement correct
 
 Contexte:
 {context}
 
 Question: {question}
 
-Réponse structurée et détaillée:"""
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
         
         PROMPT = PromptTemplate(
             template=prompt_template,
@@ -294,9 +296,28 @@ Réponse structurée et détaillée:"""
                     # Créer un contexte spécialisé pour les produits
                     context = "\n\n".join([doc.page_content for doc in product_docs])
                     
-                    # Utiliser le prompt avec le contexte enrichi
-                    prompt_template = self.qa_chain.combine_documents_chain.llm_chain.prompt
-                    formatted_prompt = prompt_template.format(
+                    # Utiliser le prompt JSON avec le contexte enrichi
+                    json_prompt_template = """
+Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
+
+INSTRUCTIONS OBLIGATOIRES :
+- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
+- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
+- Utilise les composants appropriés : "Heading", "Text", "Button", "Card", "Grid", "ProductCard", "Container", "Navigation", etc.
+- Pour les listes de produits : utilise "Grid" avec des "ProductCard"
+- Pour les pages simples : utilise "centered" avec "Heading" et "Text"
+- Pour les tableaux de bord : utilise "dashboard"
+- Applique les classes Tailwind CSS appropriées
+- Assure-toi que le JSON est syntaxiquement correct
+
+Contexte:
+{context}
+
+Question: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
+                    
+                    formatted_prompt = json_prompt_template.format(
                         context=context,
                         question=question
                     )
