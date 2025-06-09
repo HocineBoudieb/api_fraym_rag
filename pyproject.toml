@@ -1,0 +1,36 @@
+[project]
+name = "fraym-langchain-rag"
+version = "0.1.0"
+description = "Système RAG avec LangChain et ChromaDB"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.20",
+    "langchain-openai>=0.0.5",
+    "langchain-chroma>=0.1.0",
+    "chromadb>=0.4.22",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "python-dotenv>=1.0.0",
+    "tiktoken>=0.5.0",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.6"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["src"] by default)
+include = ["*.py"]  # package names should match these glob patterns (["*"] by default)
+exclude = ["knowledges*", "chroma_langchain_db*", "test*"]  # exclude packages matching these glob patterns (empty by default)
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0"
+]

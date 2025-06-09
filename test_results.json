@@ -1,0 +1,28 @@
+{
+  "system_info": {
+    "status": "ready",
+    "count": 46,
+    "embedding_model": "text-embedding-3-small",
+    "llm_model": "gpt-4o-mini"
+  },
+  "test_results": [
+    {
+      "query": "Liste moi tous les produits disponibles",
+      "answer": "Je ne peux pas fournir une liste complète de tous les produits disponibles, car le contexte donné ne contient pas d'informations spécifiques sur les produits individuels. Il mentionne simplement les catégories principales comme l'électronique, la mode, la maison & jardin, le sport & loisirs, et la beauté & santé, ainsi que des marques partenaires. Pour obtenir une liste précise des produits, il serait nécessaire de consulter le catalogue en ligne de l'e-commerce.",
+      "sources_count": 2,
+      "total_sources": 5
+    },
+    {
+      "query": "Quels smartphones sont disponibles ?",
+      "answer": "Les smartphones disponibles dans le catalogue sont :\n\n1. **iPhone 15 Pro**\n   - **Prix**: 1 229€\n   - **Écran**: 6.1 pouces Super Retina XDR\n   - **Processeur**: A17 Pro\n   - **Stockage**: 128GB, 256GB, 512GB, 1TB\n   - **Caméra**: Triple caméra 48MP\n   - **Couleurs**: Titane naturel, Titane bleu, Titane blanc, Titane noir\n   - **Garantie**: 2 ans\n\n2. **Samsung Galaxy S24 Ultra**\n   - **Prix**: 1 419€\n   - **Écran**: 6.8 pouces Dynamic AMOLED 2X\n   - **Processeur**: Snapdragon 8 Gen 3\n   - **Stockage**: 256GB, 512GB, 1TB\n   - **Caméra**: Quad caméra 200MP\n   - **Couleurs**: Violet, Jaune, Gris, Noir\n   - **Garantie**: 2 ans\n\nCes deux modèles offrent des caractéristiques haut de gamme et une garantie de deux ans.",
+      "sources_count": 2,
+      "total_sources": 5
+    },
+    {
+      "query": "Comment contacter le service client ?",
+      "answer": "Pour contacter le service client, vous avez plusieurs options :\n\n### 1. Support téléphonique\n- **Numéro**: 01 23 45 67 89 (appel gratuit)\n- **Horaires**:\n  - **Lundi à Vendredi**: 8h00 - 20h00\n  - **Samedi**: 9h00 - 18h00\n  - **Dimanche**: 10h00 - 16h00\n\n### 2. Chat en ligne\n- **Disponibilité**: 24h/24, 7j/7\n- **Temps de réponse moyen**: 2 minutes\n- **Langues disponibles**: Français, Anglais, Espagnol\n\n### 3. Email\n- **Adresse**: support@intentlayer.com\n- **Temps de réponse**:\n  - **En semaine**: Sous 4 heures\n  - **Weekend**: Sous 24 heures\n\n### 4. Formulaire de contact\n- **Temps de réponse**: Sous 24 heures\n\nVous pouvez choisir l'option qui vous convient le mieux en fonction de vos besoins et de la disponibilité.",
+      "sources_count": 2,
+      "total_sources": 5
+    }
+  ]
+}
