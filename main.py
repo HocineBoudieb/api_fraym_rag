@@ -184,6 +184,15 @@ INSTRUCTIONS OBLIGATOIRES :
 - Applique les classes Tailwind CSS appropriées
 - Assure-toi que le JSON est syntaxiquement correct
 
+STRUCTURE COHÉRENTE DES COMPOSANTS :
+- TOUJOURS générer EXACTEMENT 6 composants dans cet ordre :
+  1. Heading (titre principal ou message de bienvenue)
+  2. ZaraCategoryButtons (boutons de catégories)
+  3. Text (texte descriptif ou question)
+  4. Grid avec ProductCard OU ZaraProductGrid (produits)
+- Maintenir cette structure pour TOUTES les réponses
+- Adapter uniquement le contenu, pas la structure
+
 RÈGLES STRICTES POUR LES PRODUITS :
 - Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
 - Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
@@ -286,6 +295,228 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
             logger.error(f"❌ Erreur lors du chargement de la base de connaissances: {e}")
             raise
     
+    def detect_scenario(self, query: str, found_docs: List[Document]) -> str:
+        """
+        Détecte le scénario approprié basé sur la requête et les documents trouvés
+        """
+        query_lower = query.lower()
+        
+        # Mots-clés par scénario
+        ecommerce_keywords = ['produit', 'acheter', 'prix', 'catalogue', 'recommandation', 'commander', 'panier']
+        single_product_keywords = ['détails', 'spécifications', 'caractéristiques', 'fiche produit', 'plus d\'infos', 'description complète']
+        restaurant_keywords = ['menu', 'plat', 'restaurant', 'réserver', 'carte', 'table', 'cuisine']
+        support_keywords = ['aide', 'problème', 'retour', 'livraison', 'garantie', 'support', 'contact']
+        comparison_keywords = ['comparer', 'différence', 'vs', 'versus', 'mieux', 'choisir']
+        landing_keywords = ['bonjour', 'salut', 'hello', 'bienvenue', 'aide-moi', 'que faire']
+        
+        # Vérifier les tags dans les documents
+        doc_tags = set()
+        for doc in found_docs:
+            if 'tags' in doc.metadata:
+                if isinstance(doc.metadata['tags'], list):
+                    doc_tags.update(doc.metadata['tags'])
+                else:
+                    doc_tags.add(doc.metadata['tags'])
+        
+        # Logique de détection par priorité
+        
+        # 1. Produit unique avec détails
+        if ('product' in doc_tags or 'ecommerce' in doc_tags) and \
+           (any(keyword in query_lower for keyword in single_product_keywords) or \
+            len(found_docs) == 1):
+            return 'single_product'
+        
+        # 2. Produits E-commerce (liste)
+        if ('product' in doc_tags or 'ecommerce' in doc_tags) and \
+           any(keyword in query_lower for keyword in ecommerce_keywords):
+            return 'ecommerce_products'
+        
+        # 3. Restaurant
+        if ('restaurant' in doc_tags or 'menu' in doc_tags) or \
+           any(keyword in query_lower for keyword in restaurant_keywords):
+            return 'restaurant_menu'
+        
+        # 4. Support/FAQ
+        if ('support' in doc_tags or 'faq' in doc_tags) or \
+           any(keyword in query_lower for keyword in support_keywords):
+            return 'customer_support'
+        
+        # 5. Comparaison (si plusieurs produits et mots-clés de comparaison)
+        if any(keyword in query_lower for keyword in comparison_keywords) and \
+           len(found_docs) > 1 and 'product' in doc_tags:
+            return 'product_comparison'
+        
+        # 6. Landing/Accueil
+        if any(keyword in query_lower for keyword in landing_keywords) or \
+           len(query.strip()) < 20:  # Requêtes courtes = orientation
+            return 'landing_page'
+        
+        # 7. Par défaut : informatif
+        return 'informative'
+    
+    def get_scenario_prompt(self, scenario: str, session_context: str, context: str, question: str) -> str:
+        """
+        Retourne le prompt adapté au scénario détecté
+        """
+        base_instructions = """
+Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
+
+INSTRUCTIONS OBLIGATOIRES :
+- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
+- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
+- Utilise les composants appropriés selon le scénario
+- Applique les classes Tailwind CSS appropriées
+- Assure-toi que le JSON est syntaxiquement correct
+- Prends en compte l'historique de la conversation pour maintenir la cohérence
+"""
+        
+        scenario_prompts = {
+            'single_product': f"""{base_instructions}
+
+SCÉNARIO : PRODUIT UNIQUE - FICHE DÉTAILLÉE
+- Utilise le template "centered" pour une présentation focalisée
+- Structure recommandée : Heading → ProductCard détaillée → Text complémentaires → Button d'action
+- Mets en avant TOUS les détails du produit unique :
+  * Nom, prix, description complète
+  * Spécifications techniques détaillées
+  * Caractéristiques importantes
+  * Informations de disponibilité
+- Ajoute des informations sur la livraison, garantie, service après-vente
+- Inclus un appel à l'action clair ("Ajouter au panier", "Commander")
+- Optimise pour la conversion sur ce produit spécifique
+
+RÈGLES STRICTES POUR LES PRODUITS :
+- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
+- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
+- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
+
+Historique de la conversation:
+{session_context}
+
+Contexte du produit:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'ecommerce_products': f"""{base_instructions}
+
+SCÉNARIO : AFFICHAGE DE PRODUITS E-COMMERCE
+- Utilise le template "grid" pour une présentation optimale des produits
+- Structure recommandée : Heading → Text descriptif → Grid avec ProductCard → Text de suivi/CTA
+- Mets en avant les produits avec leurs caractéristiques et prix
+- Inclus des appels à l'action pour l'achat
+- Optimise pour la conversion
+
+RÈGLES STRICTES POUR LES PRODUITS :
+- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
+- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
+- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
+
+Historique de la conversation:
+{session_context}
+
+Contexte des produits:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'restaurant_menu': f"""{base_instructions}
+
+SCÉNARIO : MENU RESTAURANT
+- Utilise le template "centered" ou "grid" selon le contenu
+- Structure recommandée : Heading → Grid avec Cards pour les plats → Button de réservation
+- Mets en avant les spécialités et informations pratiques
+- Inclus les informations de contact et réservation
+
+Historique de la conversation:
+{session_context}
+
+Contexte restaurant:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'customer_support': f"""{base_instructions}
+
+SCÉNARIO : SERVICE CLIENT / SUPPORT
+- Utilise le template "centered" pour une lecture facile
+- Structure recommandée : Heading → Card avec réponse détaillée → Text + Button de contact
+- Priorise la clarté et l'aide pratique
+- Inclus les informations de contact si pertinent
+
+Historique de la conversation:
+{session_context}
+
+Contexte support:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'product_comparison': f"""{base_instructions}
+
+SCÉNARIO : COMPARAISON DE PRODUITS
+- Utilise le template "grid" pour comparer côte à côte
+- Structure recommandée : Heading → Grid avec Cards de comparaison → Text de recommandation
+- Mets en évidence les différences clés
+- Conclus avec une recommandation basée sur les besoins
+
+Historique de la conversation:
+{session_context}
+
+Contexte des produits à comparer:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'landing_page': f"""{base_instructions}
+
+SCÉNARIO : PAGE D'ACCUEIL / ORIENTATION
+- Utilise le template "landing" pour un accueil chaleureux
+- Structure recommandée : Heading de bienvenue → Text d'orientation → Grid avec options d'action
+- Propose des directions claires vers les principales fonctionnalités
+- Crée une expérience d'onboarding fluide
+
+Historique de la conversation:
+{session_context}
+
+Contexte général:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :""",
+            
+            'informative': f"""{base_instructions}
+
+SCÉNARIO : RÉPONSE INFORMATIVE
+- Utilise le template "centered" pour une présentation claire
+- Structure recommandée : Heading → Text/Card avec information → Text de suivi si nécessaire
+- Priorise la clarté et la pertinence de l'information
+- Garde une structure simple et lisible
+
+Historique de la conversation:
+{session_context}
+
+Contexte:
+{context}
+
+Question actuelle: {question}
+
+Réponds UNIQUEMENT avec un JSON valide selon le guide de structure :"""
+        }
+        
+        return scenario_prompts.get(scenario, scenario_prompts['informative'])
+    
     def get_chunks_by_tag(self, tag: str, limit: int = 10) -> List[Document]:
         """Récupère les chunks ayant un tag spécifique"""
         try:
@@ -358,47 +589,15 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                 product_docs = self.get_chunks_by_tag('product', limit=15)
                 
                 if product_docs:
+                    # Détecter le scénario approprié
+                    scenario = self.detect_scenario(question, product_docs)
+                    logger.info(f"📋 Scénario détecté: {scenario}")
+                    
                     # Créer un contexte spécialisé pour les produits
                     context = "\n\n".join([doc.page_content for doc in product_docs])
                     
-                    # Utiliser le prompt JSON avec le contexte enrichi et l'historique de session
-                    json_prompt_template = """
-Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
-
-INSTRUCTIONS OBLIGATOIRES :
-- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
-- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
-- Utilise les composants appropriés : "Heading", "Text", "Button", "Card", "Grid", "ProductCard", "Container", "Navigation", etc.
-- Pour les listes de produits : utilise "Grid" avec des "ProductCard"
-- Pour les pages simples : utilise "centered" avec "Heading" et "Text"
-- Pour les tableaux de bord : utilise "dashboard"
-- Applique les classes Tailwind CSS appropriées
-- Assure-toi que le JSON est syntaxiquement correct
-- Prends en compte l'historique de la conversation pour maintenir la cohérence
-
-RÈGLES STRICTES POUR LES PRODUITS :
-- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
-- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
-- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
-- Tu NE DOIS PAS inventer de prix, de caractéristiques ou de descriptions
-- Reste fidèle aux informations exactes du catalogue fourni
-- Si l'utilisateur demande un produit qui n'existe pas, propose uniquement les produits similaires disponibles
-
-Historique de la conversation:
-{session_context}
-
-Contexte des produits:
-{context}
-
-Question actuelle: {question}
-
-Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisant SEULEMENT les produits du contexte :"""
-                    
-                    formatted_prompt = json_prompt_template.format(
-                        session_context=session_context,
-                        context=context,
-                        question=question
-                    )
+                    # Obtenir le prompt adapté au scénario
+                    formatted_prompt = self.get_scenario_prompt(scenario, session_context, context, question)
                     
                     # Générer la réponse
                     response = self.llm.invoke(formatted_prompt)
@@ -408,6 +607,7 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                     self.session_manager.add_message(session_id, "assistant", answer, {
                         "search_method": "tag_based",
                         "tag_used": "product",
+                        "scenario": scenario,
                         "sources_count": len(product_docs)
                     })
                     
@@ -428,6 +628,7 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                             "total_sources": len(product_docs),
                             "query": question,
                             "search_method": "tag_based",
+                            "scenario": scenario,
                             "tag_used": "product"
                         }
                     }
@@ -446,6 +647,19 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
             answer = result["result"]
             sources_found = result.get("source_documents", [])
             
+            # Détecter le scénario pour les réponses générales
+            scenario = self.detect_scenario(question, sources_found)
+            logger.info(f"📋 Scénario général détecté: {scenario}")
+            
+            # Si le scénario détecté nécessite un format JSON spécifique, régénérer la réponse
+            if scenario in ['restaurant_menu', 'customer_support', 'landing_page', 'product_comparison']:
+                context = "\n\n".join([doc.page_content for doc in sources_found]) if sources_found else "Aucun contexte spécifique trouvé."
+                formatted_prompt = self.get_scenario_prompt(scenario, session_context, context, question)
+                
+                # Régénérer avec le format adapté
+                response = self.llm.invoke(formatted_prompt)
+                answer = response.content if hasattr(response, 'content') else str(response)
+            
             # Logique de fallback : si peu de sources trouvées et que la question pourrait concerner des recommandations
             fallback_keywords = ['recommand', 'conseil', 'suggest', 'propose', 'que faire', 'quoi', 'help', 'aide']
             should_try_products = (
@@ -458,46 +672,15 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                 product_docs = self.get_chunks_by_tag('product', limit=10)
                 
                 if product_docs and len(product_docs) > len(sources_found):
+                    # Détecter le scénario approprié pour le fallback
+                    scenario = self.detect_scenario(question, product_docs)
+                    logger.info(f"📋 Scénario fallback détecté: {scenario}")
+                    
                     # Utiliser les produits comme sources supplémentaires
                     context = "\n\n".join([doc.page_content for doc in product_docs])
                     
-                    json_prompt_template = """
-Tu es un assistant e-commerce spécialisé qui génère des interfaces utilisateur dynamiques. Tu dois TOUJOURS répondre avec un JSON valide selon la structure définie dans le Guide de Structure JSON pour le Système de Rendu de Composants.
-
-INSTRUCTIONS OBLIGATOIRES :
-- Ta réponse DOIT être un JSON valide avec la structure : {{"template": "...", "components": [...], "templateProps": {{...}}}}
-- Utilise les templates disponibles : "base", "centered", "grid", "dashboard", "landing"
-- Utilise les composants appropriés : "Heading", "Text", "Button", "Card", "Grid", "ProductCard", "Container", "Navigation", etc.
-- Pour les listes de produits : utilise "Grid" avec des "ProductCard"
-- Pour les pages simples : utilise "centered" avec "Heading" et "Text"
-- Pour les tableaux de bord : utilise "dashboard"
-- Applique les classes Tailwind CSS appropriées
-- Assure-toi que le JSON est syntaxiquement correct
-- Prends en compte l'historique de la conversation pour maintenir la cohérence
-
-RÈGLES STRICTES POUR LES PRODUITS :
-- Tu NE DOIS JAMAIS inventer ou créer de nouveaux produits
-- Tu DOIS UNIQUEMENT utiliser les produits, prix et informations présents dans le contexte fourni
-- Si un produit n'existe pas dans le contexte, tu DOIS dire qu'il n'est pas disponible
-- Tu NE DOIS PAS inventer de prix, de caractéristiques ou de descriptions
-- Reste fidèle aux informations exactes du catalogue fourni
-- Si l'utilisateur demande un produit qui n'existe pas, propose uniquement les produits similaires disponibles
-
-Historique de la conversation:
-{session_context}
-
-Contexte des produits disponibles:
-{context}
-
-Question actuelle: {question}
-
-Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisant SEULEMENT les produits du contexte :"""
-                    
-                    formatted_prompt = json_prompt_template.format(
-                        session_context=session_context,
-                        context=context,
-                        question=question
-                    )
+                    # Obtenir le prompt adapté au scénario
+                    formatted_prompt = self.get_scenario_prompt(scenario, session_context, context, question)
                     
                     # Générer la réponse avec les produits
                     response = self.llm.invoke(formatted_prompt)
@@ -506,6 +689,7 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                     # Enregistrer la réponse de l'assistant
                     self.session_manager.add_message(session_id, "assistant", answer, {
                         "search_method": "fallback_products",
+                        "scenario": scenario,
                         "sources_count": len(product_docs)
                     })
                     
@@ -525,13 +709,15 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                         "metadata": {
                             "total_sources": len(product_docs),
                             "query": question,
-                            "search_method": "fallback_products"
+                            "search_method": "fallback_products",
+                            "scenario": scenario
                         }
                     }
             
             # Enregistrer la réponse de l'assistant (recherche normale)
             self.session_manager.add_message(session_id, "assistant", answer, {
                 "search_method": "similarity",
+                "scenario": scenario,
                 "sources_count": len(sources_found)
             })
             
@@ -551,7 +737,8 @@ Réponds UNIQUEMENT avec un JSON valide selon le guide de structure, en utilisan
                 "metadata": {
                     "total_sources": len(sources_found),
                     "query": question,
-                    "search_method": "similarity"
+                    "search_method": "similarity",
+                    "scenario": scenario
                 }
             }
             

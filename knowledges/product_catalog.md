@@ -4,6 +4,7 @@
 
 ### iPhone 15 Pro
 - **Prix**: 1 229€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Écran**: 6.1 pouces Super Retina XDR
 - **Processeur**: A17 Pro
 - **Stockage**: 128GB, 256GB, 512GB, 1TB
@@ -13,6 +14,7 @@
 
 ### Samsung Galaxy S24 Ultra
 - **Prix**: 1 419€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Écran**: 6.8 pouces Dynamic AMOLED 2X
 - **Processeur**: Snapdragon 8 Gen 3
 - **Stockage**: 256GB, 512GB, 1TB
@@ -24,6 +26,7 @@
 
 ### MacBook Air M3
 - **Prix**: 1 299€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Écran**: 13.6 pouces Liquid Retina
 - **Processeur**: Apple M3
 - **RAM**: 8GB, 16GB, 24GB
@@ -33,6 +36,7 @@
 
 ### Dell XPS 13
 - **Prix**: 1 199€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Écran**: 13.4 pouces InfinityEdge
 - **Processeur**: Intel Core i7-1360P
 - **RAM**: 16GB, 32GB
@@ -44,6 +48,7 @@
 
 ### AirPods Pro (2ème génération)
 - **Prix**: 279€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Réduction de bruit**: Active
 - **Autonomie**: 6h + 24h avec boîtier
 - **Résistance**: IPX4
@@ -51,6 +56,7 @@
 
 ### Magic Keyboard
 - **Prix**: 109€
+- image : https://images.samsung.com/fr/smartphones/galaxy-s25-edge/buy/kv_formFactor_MO.png?imbypass=true
 - **Connectivité**: Bluetooth, USB-C
 - **Autonomie**: 1 mois
 - **Rétroéclairage**: Oui
